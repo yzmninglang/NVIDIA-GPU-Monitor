@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NVIDIA GPU Monitor</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f0f2f5; color: #333; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; margin: 0; padding-top: 20px; }
+        .container { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 90%; max-width: 800px; }
+        h1 { text-align: center; color: #1a1a1a; margin-bottom: 20px; }
+        .gpu-card { border: 1px solid #ddd; border-radius: 6px; padding: 15px; margin-bottom: 15px; background-color: #fafafa; }
+        .gpu-card h2 { margin-top: 0; margin-bottom: 10px; font-size: 1.2em; color: #0056b3; }
+        .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+        .info-item { background: #e9ecef; padding: 10px; border-radius: 4px; }
+        .info-item strong { display: block; font-size: 0.9em; color: #555; margin-bottom: 5px; }
+        #error { color: #d93025; font-weight: bold; text-align: center; padding: 10px; background-color: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px; display: none; }
+        #loading { text-align: center; font-size: 1.2em; padding: 20px; }
+        .processes { margin-top: 15px; }
+        .processes h3 { font-size: 1em; color: #333; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        .process-item { display: flex; justify-content: space-between; background: #f8f9fa; padding: 8px; border-radius: 4px; margin-bottom: 5px; font-size: 0.9em; line-height: 1.4; }
+        .process-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-right: 15px; font-weight: bold; direction: rtl; text-align: left; }
+        .process-user { flex: 0 0 140px; text-align: left; color: #555; }
+        .process-mem { flex: 0 0 120px; text-align: right; color: #555; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>NVIDIA GPU Monitor</h1>
+        <div id="loading">Loading GPU data...</div>
+        <div id="error"></div>
+        <div id="gpu-info"></div>
+    </div>
+
+    <script>
+        const gpuInfoContainer = document.getElementById('gpu-info');
+        const errorContainer = document.getElementById('error');
+        const loadingIndicator = document.getElementById('loading');
+
+        async function fetchGpuInfo() {
+            try {
+                const response = await fetch('/api/gpu');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}, message: ${await response.text()}`);
+                }
+                const gpus = await response.json();
+
+                loadingIndicator.style.display = 'none';
+                errorContainer.style.display = 'none';
+                gpuInfoContainer.innerHTML = '';
+
+                if (!gpus || gpus.length === 0) {
+                    gpuInfoContainer.innerHTML = '<p>No NVIDIA GPUs detected.</p>';
+                    return;
+                }
+
+                gpus.forEach(gpu => {
+                    const gpuCard = document.createElement('div');
+                    gpuCard.className = 'gpu-card';
+
+                    gpuCard.innerHTML = `
+                        <h2>GPU ${gpu.ID}: ${gpu.ProductName}</h2>
+                        <div class="info-grid">
+                            <div class="info-item">
+                                <strong>Memory</strong>
+                                <span>${gpu.MemoryUsed} / ${gpu.MemoryTotal}</span>
+                            </div>
+                            <div class="info-item">
+                                <strong>GPU Utilization</strong>
+                                <span>${gpu.Utilization}</span>
+                            </div>
+                            <div class="info-item">
+                                <strong>Power Draw</strong>
+                                <span>${gpu.PowerDraw}</span>
+                            </div>
+                        </div>
+                        <div class="processes">
+                            <h3>Top Processes</h3>
+                            <div class="process-list">
+                                <!-- Process items will be injected here -->
+                            </div>
+                        </div>
+                    `;
+
+                    const processList = gpuCard.querySelector('.process-list');
+                    if (gpu.Processes && gpu.Processes.length > 0) {
+                        gpu.Processes.forEach(proc => {
+                            const processItem = document.createElement('div');
+                            processItem.className = 'process-item';
+                            processItem.innerHTML = `
+                                <span class="process-name" title="${proc.process_name}">${proc.process_name}</span>
+                                <span class="process-user">User: ${proc.username}</span>
+                                <span class="process-mem">Mem: ${proc.used_memory}</span>
+                            `;
+                            processList.appendChild(processItem);
+                        });
+                    } else {
+                        processList.innerHTML = '<p>No running processes detected.</p>';
+                    }
+
+                    gpuInfoContainer.appendChild(gpuCard);
+                });
+            } catch (error) {
+                console.error('Failed to fetch GPU info:', error);
+                loadingIndicator.style.display = 'none';
+                errorContainer.textContent = `Error loading data: ${error.message}`;
+                errorContainer.style.display = 'block';
+            }
+        }
+
+        fetchGpuInfo();
+        setInterval(fetchGpuInfo, 3000); // Refresh every 3 seconds
+    </script>
+</body>
+</html>
