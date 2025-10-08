@@ -9,18 +9,17 @@ import (
 	"net/http"
 	"os/exec"
 	"sort"
-	"strconv"
 	"strings"
 )
 
 // GPU a gpu device
 type GPU struct {
-	ID          string `xml:"id,attr"`
-	ProductName string `xml:"product_name"`
-	MemoryTotal string `xml:"fb_memory_usage>total"`
-	MemoryUsed  string `xml:"fb_memory_usage>used"`
-	Utilization string `xml:"utilization>gpu_util"`
-	PowerDraw   string `xml:"gpu_power_readings>power_draw"`
+	ID          string    `xml:"id,attr"`
+	ProductName string    `xml:"product_name"`
+	MemoryTotal string    `xml:"fb_memory_usage>total"`
+	MemoryUsed  string    `xml:"fb_memory_usage>used"`
+	Utilization string    `xml:"utilization>gpu_util"`
+	PowerDraw   string `xml:"gpu_power_readings>instant_power_draw"`
 	Processes   []Process `xml:"processes>process_info"`
 }
 
@@ -28,7 +27,7 @@ type GPU struct {
 type Process struct {
 	Pid         string `xml:"pid"`
 	ProcessName string `xml:"process_name" json:"process_name"`
-	UsedMemory  string `xml:"used_memory" json:"used_memory"`
+	UsedMemory  string `xml:"used_memory,omitempty" json:"used_memory,omitempty"`
 	Username    string `json:"username"`
 }
 
@@ -80,14 +79,14 @@ func gpuInfoHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		sort.Slice(gpu.Processes, func(k, l int) bool {
-			memK, _ := strconv.Atoi(strings.Fields(gpu.Processes[k].UsedMemory)[0])
-			memL, _ := strconv.Atoi(strings.Fields(gpu.Processes[l].UsedMemory)[0])
-			return memK > memL
+			return gpu.Processes[k].Pid < gpu.Processes[l].Pid
 		})
 
 		if len(gpu.Processes) > 2 {
 			gpu.Processes = gpu.Processes[:2]
 		}
+		// remove N/A from power draw
+		gpu.PowerDraw = strings.Split(gpu.PowerDraw, " ")[0]
 	}
 
 	w.Header().Set("Content-Type", "application/json")
