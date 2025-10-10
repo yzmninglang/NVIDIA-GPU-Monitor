@@ -1,0 +1,13 @@
+{
+  "nodes": [
+    {
+      "name": "local-gpu-node",
+      "host": "localhost",
+      "port": 8082,
+      "alias": "本地GPU节点"
+    }
+  ],
+  "aggregator": {
+    "port": 8080
+  }
+}
