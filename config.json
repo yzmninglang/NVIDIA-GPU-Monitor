@@ -5,9 +5,19 @@
       "host": "localhost",
       "port": 8082,
       "alias": "本地GPU节点"
+    },
+    {
+      "name": "remote-gpu-node",
+      "host": "lab108-5090.local",
+      "port": 8082,
+      "alias": "远程GPU节点"
     }
   ],
   "aggregator": {
     "port": 8080
+  },
+  "dns": {
+    "server": "127.0.0.1:5353",
+    "enabled": true
   }
 }

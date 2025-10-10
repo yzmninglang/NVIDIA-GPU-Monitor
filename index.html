@@ -44,10 +44,20 @@
             padding-bottom: 10px;
             border-bottom: 1px solid #eee;
         }
+        .node-title-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
         .node-title { 
             margin: 0; 
             font-size: 1.3em; 
             color: #0056b3; 
+        }
+        .node-ip {
+            color: #28a745;
+            font-size: 0.9em;
+            font-weight: bold;
         }
         .node-status {
             padding: 5px 10px;
@@ -208,9 +218,22 @@
                         statusClass = 'status-offline';
                     }
                     
+                    // Extract IP from host (if it's not a hostname)
+                    let ipDisplay = node.host;
+                    if (node.host && !isNaN(node.host.split('.')[0])) {
+                        // It looks like an IP address
+                        ipDisplay = node.host;
+                    } else if (node.host && node.host.includes('.')) {
+                        // It's a hostname, show as is
+                        ipDisplay = node.host;
+                    }
+                    
                     nodeCard.innerHTML = `
                         <div class="node-header">
-                            <h2 class="node-title">${node.alias || node.name}</h2>
+                            <div class="node-title-container">
+                                <h2 class="node-title">${node.alias || node.name}</h2>
+                                <div class="node-ip">${ipDisplay}</div>
+                            </div>
                             <span class="node-status ${statusClass}">${node.status.toUpperCase()}</span>
                         </div>
                         <div class="last-update">Last update: ${lastUpdate}</div>

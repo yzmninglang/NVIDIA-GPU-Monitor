@@ -41,3 +41,6 @@ gpu-monitor
 .gitignore
 go.sum
 gpu-monitor-arm64
+gpu-monitor-static
+3090.xml
+prompt.md

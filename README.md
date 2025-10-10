@@ -12,6 +12,7 @@
 - 节点离线检测和状态显示
 - 响应式Web界面
 - 支持通过配置文件定义监控节点
+- 支持自定义DNS服务器解析本地域名
 
 ## 安装和部署
 
@@ -62,13 +63,17 @@ go build -o gpu-aggregator aggregator.go
     },
     {
       "name": "gpu-server-2",
-      "host": "192.168.1.102",
+      "host": "gpu-server.local",
       "port": 8081,
       "alias": "深度学习服务器"
     }
   ],
   "aggregator": {
     "port": 8080
+  },
+  "dns": {
+    "server": "127.0.0.1:5353",
+    "enabled": true
   }
 }
 ```
@@ -141,8 +146,70 @@ go build -o gpu-aggregator aggregator.go
   - 网络连接是否正常
   - 防火墙设置是否正确
   - 端口配置是否正确
+  - 主机名解析是否正确（见下面的DNS配置说明）
 
 - 如果GPU信息不正确显示，请检查：
   - NVIDIA驱动是否正确安装
   - nvidia-ml库是否可用
   - 服务是否有权限访问GPU设备
+
+## DNS配置说明
+
+当使用主机名（而不是IP地址）配置节点时，需要确保聚合端服务器能够解析这些主机名。
+
+### 自定义DNS服务器
+
+系统支持配置自定义DNS服务器来解析本地域名。在配置文件中添加`dns`部分：
+
+```json
+{
+  "dns": {
+    "server": "127.0.0.1:5353",
+    "enabled": true
+  }
+}
+```
+
+如果启用了自定义DNS服务器，系统会优先使用该服务器来解析主机名。这对于使用Avahi服务的本地网络特别有用。
+
+### 本地域名解析
+
+如果使用本地域名（如`gpu-server.local`），需要在DNS服务器上配置相应的记录，或者在聚合端服务器的`/etc/hosts`文件中添加映射：
+
+```bash
+# 编辑 /etc/hosts 文件
+sudo nano /etc/hosts
+
+# 添加类似以下的行：
+192.168.1.100 gpu-server.local
+192.168.1.101 lab108-5090.local
+```
+
+### 测试域名解析
+
+可以使用以下命令测试域名解析是否正常：
+
+```bash
+# 测试域名解析
+nslookup gpu-server.local
+ping gpu-server.local
+```
+
+### 使用IP地址避免DNS问题
+
+为了避免DNS解析问题，建议在配置文件中直接使用IP地址而不是主机名：
+
+```json
+{
+  "nodes": [
+    {
+      "name": "gpu-server-1",
+      "host": "192.168.1.101",  // 使用IP地址而不是主机名
+      "port": 8081,
+      "alias": "机器学习服务器"
+    }
+  ],
+  "aggregator": {
+    "port": 8080
+  }
+}

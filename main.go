@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"encoding/xml"
@@ -8,9 +9,11 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,6 +37,10 @@ type AggregatorConfig struct {
 	Aggregator struct {
 		Port int `json:"port"`
 	} `json:"aggregator"`
+	DNS struct {
+		Server  string `json:"server"`
+		Enabled bool   `json:"enabled"`
+	} `json:"dns"`
 }
 
 // GPUInfo represents the information of a single GPU
@@ -116,8 +123,9 @@ type Temp struct {
 
 // Power represents GPU power usage
 type Power struct {
-	PowerDraw string `xml:"instant_power_draw"`
-	PowerLimit string `xml:"current_power_limit"`
+	PowerDraw   string `xml:"power_draw"`
+	PowerLimit  string `xml:"current_power_limit"`
+	PowerState  string `xml:"power_state"`
 }
 
 // Processes represents running processes
@@ -130,6 +138,7 @@ type Process struct {
 	PID         string `xml:"pid"`
 	ProcessName string `xml:"process_name"`
 	UsedMemory  string `xml:"used_memory"`
+	Type        string `xml:"type"`
 }
 
 func main() {
@@ -185,11 +194,11 @@ func runAggregator(configFile, portOverride string) {
 		config: *config,
 		nodes:  make(map[string]*NodeStatus),
 		client: &http.Client{
-			Timeout: 5 * time.Second,
+			Timeout: 2 * time.Second,
 		},
 	}
 
-	// Initialize node statuses
+	// Initialize node statuses in the order they appear in config
 	for _, node := range config.Nodes {
 		aggregator.nodes[node.Name] = &NodeStatus{
 			NodeConfig: node,
@@ -310,22 +319,30 @@ func getGPUInfoFromNvidiaSmi() ([]GPUInfo, error) {
 			temperature = uint32(tempVal)
 		}
 		
-		// Parse power
+		// Parse power - handle different formats
 		powerUsage := parsePowerValue(gpu.Power.PowerDraw)
 		powerLimit := parsePowerValue(gpu.Power.PowerLimit)
 		
-		// Convert processes
-		processes := make([]ProcessInfo, len(gpu.Processes.ProcessInfo))
-		for j, proc := range gpu.Processes.ProcessInfo {
+		// Convert processes and sort by memory usage (descending)
+		processes := make([]ProcessInfo, 0, len(gpu.Processes.ProcessInfo))
+		for _, proc := range gpu.Processes.ProcessInfo {
 			usedMemory := parseMemoryValue(proc.UsedMemory)
 			pid, _ := strconv.ParseUint(proc.PID, 10, 32)
 			
-			processes[j] = ProcessInfo{
-				PID:  uint32(pid),
-				Name: proc.ProcessName,
-				Used: usedMemory,
+			// Skip processes with 0 memory usage
+			if usedMemory > 0 {
+				processes = append(processes, ProcessInfo{
+					PID:  uint32(pid),
+					Name: proc.ProcessName,
+					Used: usedMemory,
+				})
 			}
 		}
+		
+		// Sort processes by memory usage in descending order
+		sort.Slice(processes, func(i, j int) bool {
+			return processes[i].Used > processes[j].Used
+		})
 		
 		gpus[i] = GPUInfo{
 			ID:          gpu.ID,
@@ -375,11 +392,22 @@ func parseMemoryValue(value string) uint64 {
 		return uint64(num)
 	}
 	
+	// Handle "N/A" or empty values
+	if value == "N/A" || value == "" {
+		return 0
+	}
+	
+	// Try to parse as a number directly
+	num, err := strconv.ParseFloat(value, 64)
+	if err == nil {
+		return uint64(num)
+	}
+	
 	return 0
 }
 
 func parsePowerValue(value string) uint64 {
-	// Parse power value like "250.00 W"
+	// Parse power value like "250.00 W" or "317.45 W"
 	value = strings.TrimSpace(value)
 	
 	if strings.HasSuffix(value, "W") {
@@ -412,7 +440,7 @@ func getHostname() string {
 
 // Aggregator functions
 func (a *Aggregator) pollNodes() {
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -424,6 +452,7 @@ func (a *Aggregator) pollNodes() {
 func (a *Aggregator) updateNodeStatuses() {
 	var wg sync.WaitGroup
 
+	// Process nodes in the order they appear in config
 	for _, node := range a.config.Nodes {
 		wg.Add(1)
 		go func(node NodeConfig) {
@@ -436,7 +465,17 @@ func (a *Aggregator) updateNodeStatuses() {
 }
 
 func (a *Aggregator) updateNodeStatus(node NodeConfig) {
-	url := fmt.Sprintf("http://%s:%d/gpu-info", node.Host, node.Port)
+	// Use custom DNS resolver if configured
+	host := node.Host
+	if a.config.DNS.Enabled && a.config.DNS.Server != "" {
+		// Try to resolve the host using custom DNS
+		resolvedIP, err := a.resolveWithCustomDNS(node.Host, a.config.DNS.Server)
+		if err == nil && resolvedIP != "" {
+			host = resolvedIP
+		}
+	}
+	
+	url := fmt.Sprintf("http://%s:%d/gpu-info", host, node.Port)
 	
 	// Create request
 	req, err := http.NewRequest("GET", url, nil)
@@ -478,6 +517,31 @@ func (a *Aggregator) updateNodeStatus(node NodeConfig) {
 	a.mutex.Unlock()
 }
 
+func (a *Aggregator) resolveWithCustomDNS(hostname, dnsServer string) (string, error) {
+	// Create a custom resolver
+	resolver := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			d := net.Dialer{
+				Timeout: time.Millisecond * time.Duration(1000),
+			}
+			return d.DialContext(ctx, network, dnsServer)
+		},
+	}
+
+	// Try to resolve the hostname
+	ips, err := resolver.LookupIPAddr(context.Background(), hostname)
+	if err != nil {
+		return "", err
+	}
+
+	if len(ips) > 0 {
+		return ips[0].IP.String(), nil
+	}
+
+	return "", fmt.Errorf("no IP address found for hostname: %s", hostname)
+}
+
 func (a *Aggregator) updateNodeError(nodeName, errorMsg string) {
 	a.mutex.Lock()
 	if status, exists := a.nodes[nodeName]; exists {
@@ -491,9 +555,12 @@ func (a *Aggregator) updateNodeError(nodeName, errorMsg string) {
 
 func (a *Aggregator) nodesHandler(w http.ResponseWriter, r *http.Request) {
 	a.mutex.RLock()
-	nodes := make([]*NodeStatus, 0, len(a.nodes))
-	for _, node := range a.nodes {
-		nodes = append(nodes, node)
+	// Return nodes in the order they appear in config
+	nodes := make([]*NodeStatus, 0, len(a.config.Nodes))
+	for _, nodeConfig := range a.config.Nodes {
+		if nodeStatus, exists := a.nodes[nodeConfig.Name]; exists {
+			nodes = append(nodes, nodeStatus)
+		}
 	}
 	a.mutex.RUnlock()
 
