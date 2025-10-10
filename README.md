@@ -8,18 +8,20 @@
 
 - 实时监控多个节点的GPU使用情况
 - 显示GPU利用率、显存占用、温度、功耗等信息
-- 显示使用GPU的进程信息
+- 显示使用GPU的进程信息，按显存占用排序
 - 节点离线检测和状态显示
 - 响应式Web界面
 - 支持通过配置文件定义监控节点
 - 支持自定义DNS服务器解析本地域名
+- Web界面显示节点IP地址
+- 支持多种架构（x86_64和ARM64）
 
 ## 安装和部署
 
 ### 依赖
 
 - Go 1.16+
-- NVIDIA驱动和nvidia-ml库（用于实际GPU信息收集）
+- NVIDIA驱动（用于实际GPU信息收集）
 
 ### 构建
 
@@ -27,9 +29,11 @@
 # 构建程序
 go build -o gpu-monitor
 
-# 或者分别构建
-go build -o gpu-server server.go
-go build -o gpu-aggregator aggregator.go
+# 或者构建静态链接版本（避免GLIBC兼容性问题）
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o gpu-monitor
+
+# 构建ARM64版本
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -a -o gpu-monitor-arm64
 ```
 
 ## 使用方法
@@ -93,7 +97,7 @@ go build -o gpu-aggregator aggregator.go
 
 ### 聚合端接口
 
-- `GET /api/nodes`：获取所有节点的状态信息
+- `GET /api/nodes`：获取所有节点的状态信息（按配置文件顺序返回）
 - `GET /api/nodes/{name}`：获取特定节点的详细信息
 - `GET /`：Web界面
 
@@ -103,8 +107,9 @@ go build -o gpu-aggregator aggregator.go
 
 界面显示内容：
 - 节点状态（在线/离线）
+- 节点别名和IP地址（绿色加粗字体）
 - 每个GPU的详细信息（利用率、显存、温度、功耗）
-- 使用GPU的进程信息
+- 使用GPU的进程信息（按显存占用降序排列）
 - 最后更新时间
 
 ## 架构说明
@@ -150,7 +155,6 @@ go build -o gpu-aggregator aggregator.go
 
 - 如果GPU信息不正确显示，请检查：
   - NVIDIA驱动是否正确安装
-  - nvidia-ml库是否可用
   - 服务是否有权限访问GPU设备
 
 ## DNS配置说明
@@ -213,3 +217,22 @@ ping gpu-server.local
     "port": 8080
   }
 }
+```
+
+## 版本和兼容性
+
+### GLIBC兼容性
+
+为了解决不同Linux发行版之间的GLIBC版本兼容性问题，我们提供了静态链接版本的二进制文件：
+- `gpu-monitor`：静态链接版本，适用于大多数Linux发行版
+- `gpu-monitor-arm64`：ARM64架构的静态链接版本
+
+### GPU兼容性
+
+系统已测试支持以下NVIDIA GPU：
+- RTX 5090
+- RTX 3090
+- RTX 3080
+- RTX 3070
+
+其他支持nvidia-smi命令的NVIDIA GPU也应该可以正常工作。
