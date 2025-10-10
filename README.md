@@ -4,6 +4,8 @@
 1. 服务端（Server）：运行在每个GPU节点上，收集并提供该节点的GPU信息
 2. 中心聚合端（Aggregator）：收集所有节点的信息并在Web界面中展示
 
+<img width="1526" height="832" alt="image" src="https://github.com/user-attachments/assets/d4d7639d-5cf6-4ab0-897d-451a722b18ce" />
+
 ## 功能特性
 
 - 实时监控多个节点的GPU使用情况
